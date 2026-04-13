@@ -473,6 +473,8 @@ let idolCollected = false;
 let levelComplete = false;
 let levelCompleteTimer = 0;
 let levelStartTime = 0;
+let splashActive = true;
+let splashTimer = 0; // counts up, auto-dismiss after 5s
 let enemiesKilled = 0;
 let score = 0;
 let scorePopups = []; // { text, x, y, life, color }
@@ -803,12 +805,6 @@ function drawEnemies() {
       ctx.globalAlpha = 1;
     }
 
-    // Gwiazdki po narysowaniu wroga (poza save/restore)
-    if (e.stunTimer > 0 && !isBlink) {
-      ctx.restore();
-      drawStunStars(e);
-      continue;
-    }
     if (e.type === 'scarab') {
       const bx = x + e.w/2;
       const by = y + e.h/2 - 4; // podnieś skarabeusza o 6px
@@ -853,7 +849,10 @@ function drawEnemies() {
       ctx.beginPath(); ctx.arc(bx-4,by-18,2,0,Math.PI*2); ctx.fill();
       ctx.beginPath(); ctx.arc(bx+4,by-18,2,0,Math.PI*2); ctx.fill();
     }
+
     ctx.restore();
+    // Draw stun stars after enemy (outside save/restore)
+    if (e.stunTimer > 0 && !isBlink) drawStunStars(e);
   }
 }
 
@@ -921,7 +920,10 @@ const player = {
 const keys = {};
 document.addEventListener('keydown', e => {
   if (e.repeat) return;
-  if (!audioCtx) getAudio(); // init audio on first key // ignoruj auto-repeat klawiatury!
+  if (!audioCtx) getAudio();
+  // Any key dismisses journal
+  if (splashActive) { splashActive = false; return; }
+  if (journalMsgTimer > 0) { journalMsgTimer = 0; return; } // ignoruj auto-repeat klawiatury!
   keys[e.code] = true;
   if (e.code === 'Enter' && levelComplete && levelCompleteTimer > 60) { resetLevel(); return; }
   if (e.code === 'KeyZ') placeBlock();
@@ -1372,6 +1374,13 @@ function checkWhipHit() {
 
 // ─── FIZYKA ──────────────────────────────────────────────────────
 function update() {
+  // Splash screen – increment timer, block gameplay
+  if (splashActive) {
+    splashTimer++;
+    if (splashTimer > 300) splashActive = false; // auto-dismiss after 5s
+    return;
+  }
+
   // Obsługa śmierci – zawsze odliczaj timer
   if (playerDead) {
     deathTimer--;
@@ -2826,93 +2835,107 @@ function drawJournalMessage() {
   if (journalMsgTimer <= 0) return;
   journalMsgTimer--;
 
-  const fadeIn  = Math.min(1, (240 - journalMsgTimer) / 15);
-  const fadeOut = journalMsgTimer < 40 ? journalMsgTimer / 40 : 1;
+  const fadeIn  = Math.min(1, (240 - journalMsgTimer) / 20);
+  const fadeOut = journalMsgTimer < 50 ? journalMsgTimer / 50 : 1;
   const alpha   = Math.min(fadeIn, fadeOut);
 
-  // Pojawiaj się nad kafelkiem dziennika
-  const tileScreenX = journalTileX;
-  const tileScreenY = journalTileY;
-  const W = 280, H = 68;
-  const cx = Math.max(W/2 + 10, Math.min(canvas.width - W/2 - 10, tileScreenX + T/2));
-  const cy = Math.max(H/2 + 10, tileScreenY - H/2 - 8);
+  // Centered on screen – same size as level complete banner
+  const W = 460, H = 180;
+  const cx = canvas.width / 2;
+  const cy = canvas.height / 2;
+
+  ctx.save();
+  ctx.globalAlpha = alpha * 0.75;
+  ctx.fillStyle = '#0a0705';
+  ctx.fillRect(cx - W/2, cy - H/2, W, H);
+  ctx.restore();
 
   ctx.save();
   ctx.globalAlpha = alpha;
 
-  // Parchment – tło z teksturą
+  // Parchment gradient
   const paperGrad = ctx.createLinearGradient(cx-W/2, cy-H/2, cx+W/2, cy+H/2);
   paperGrad.addColorStop(0, '#2a1e0c');
   paperGrad.addColorStop(0.3, '#3a2a10');
   paperGrad.addColorStop(0.7, '#322410');
   paperGrad.addColorStop(1, '#1e1608');
   ctx.fillStyle = paperGrad;
-
-  // Zaokrąglone rogi (pixel art style)
   ctx.fillRect(cx - W/2 + 4, cy - H/2, W - 8, H);
   ctx.fillRect(cx - W/2, cy - H/2 + 4, W, H - 8);
 
-  // Złota ramka
+  // Gold border
   ctx.strokeStyle = '#c8a050';
-  ctx.lineWidth = 1.5;
+  ctx.lineWidth = 2;
   ctx.strokeRect(cx - W/2 + 4, cy - H/2, W - 8, H);
   ctx.strokeRect(cx - W/2, cy - H/2 + 4, W, H - 8);
 
-  // Narożniki ramki (ozdobne)
-  const corners = [
-    [cx-W/2+2, cy-H/2+2], [cx+W/2-6, cy-H/2+2],
-    [cx-W/2+2, cy+H/2-6], [cx+W/2-6, cy+H/2-6]
-  ];
+  // Decorative corners
   ctx.fillStyle = '#c8a050';
-  corners.forEach(([cx2,cy2]) => ctx.fillRect(cx2, cy2, 4, 4));
+  [[cx-W/2+2, cy-H/2+2], [cx+W/2-8, cy-H/2+2],
+   [cx-W/2+2, cy+H/2-8], [cx+W/2-8, cy+H/2-8]
+  ].forEach(([x2,y2]) => ctx.fillRect(x2, y2, 6, 6));
 
-  // Linia dekoracyjna pod tytułem
-  ctx.strokeStyle = '#c8a05066';
+  // Scroll decoration top
+  ctx.fillStyle = '#c8a05044';
+  ctx.fillRect(cx - W/2 + 16, cy - H/2 + 8, W - 32, 2);
+
+  // Feather icon
+  const ix = cx - W/2 + 18;
+  const iy = cy - H/2 + 16;
+  ctx.fillStyle = '#c8a050';
+  ctx.fillRect(ix, iy, 3, 12);
+  ctx.fillRect(ix-2, iy+2, 7, 3);
+  ctx.fillRect(ix-3, iy+5, 9, 2);
+  ctx.fillStyle = '#f0d080';
+  ctx.fillRect(ix+1, iy, 1, 10);
+
+  // Title
+  ctx.fillStyle = '#f0d060';
+  ctx.font = '9px "Press Start 2P"';
+  ctx.textAlign = 'center';
+  ctx.fillText("— EVAN'S JOURNAL —", cx, cy - H/2 + 30);
+
+  // Divider
+  ctx.strokeStyle = '#c8a05088';
   ctx.lineWidth = 1;
-  ctx.setLineDash([2, 2]);
+  ctx.setLineDash([3, 3]);
   ctx.beginPath();
-  ctx.moveTo(cx - W/2 + 14, cy - H/2 + 20);
-  ctx.lineTo(cx + W/2 - 14, cy - H/2 + 20);
+  ctx.moveTo(cx - W/2 + 20, cy - H/2 + 40);
+  ctx.lineTo(cx + W/2 - 20, cy - H/2 + 40);
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // Ikona pióra (pixel art)
-  const ix = cx - W/2 + 12;
-  const iy = cy - H/2 + 6;
-  ctx.fillStyle = '#c8a050';
-  ctx.fillRect(ix,   iy,   2, 8);
-  ctx.fillRect(ix-1, iy+1, 4, 2);
-  ctx.fillRect(ix-2, iy+3, 6, 1);
-  ctx.fillStyle = '#f0d080';
-  ctx.fillRect(ix+1, iy,   1, 5);
-
-  // Tytuł
-  ctx.fillStyle = '#f0d060';
-  ctx.font = '6px "Press Start 2P"';
-  ctx.textAlign = 'center';
-  ctx.fillText('— EVAN\'S JOURNAL —', cx, cy - H/2 + 14);
-
-  // Tekst cytatu – lekko pożółkły jak stary papier
+  // Quote text – wrap long text
   ctx.fillStyle = '#e8d090';
-  ctx.font = '5px "Press Start 2P"';
-  ctx.fillText(journalMsg, cx, cy + 4);
+  ctx.font = '7px "Press Start 2P"';
+  // Simple word wrap at ~52 chars
+  const words = journalMsg.replace(/"/g,'').split(' ');
+  let line = '', lines = [], maxW = W - 60;
+  for (const word of words) {
+    const test = line + (line ? ' ' : '') + word;
+    if (ctx.measureText(test).width > maxW && line) {
+      lines.push(line); line = word;
+    } else { line = test; }
+  }
+  if (line) lines.push(line);
+  lines.forEach((l, i) => {
+    ctx.fillText(l, cx, cy - 10 + i * 18);
+  });
 
-  // Numer wpisu
+  // Entry number
   ctx.fillStyle = '#c8a05088';
-  ctx.font = '5px "Press Start 2P"';
+  ctx.font = '6px "Press Start 2P"';
   ctx.textAlign = 'right';
-  ctx.fillText('ENTRY #1', cx + W/2 - 14, cy + H/2 - 8);
-  ctx.textAlign = 'left';
+  ctx.fillText('ENTRY #1', cx + W/2 - 16, cy + H/2 - 12);
 
-  // Arrow pointing to tile below
+  // Arrow pointing down
   ctx.fillStyle = '#c8a050';
-  ctx.beginPath();
-  ctx.moveTo(cx - 6, cy + H/2);
-  ctx.lineTo(cx + 6, cy + H/2);
-  ctx.lineTo(cx,     cy + H/2 + 8);
-  ctx.closePath();
-  ctx.fill();
+  ctx.textAlign = 'center';
+  ctx.font = '7px "Press Start 2P"';
+  const blinkShow = Math.floor(Date.now() / 500) % 2 === 0;
+  if (blinkShow) ctx.fillText('[ TAP TO CONTINUE ]', cx, cy + H/2 - 12);
 
+  ctx.textAlign = 'left';
   ctx.restore();
 }
 
@@ -3093,6 +3116,115 @@ function drawStarsHUD() {
   }
 }
 
+
+function drawSplash() {
+  if (!splashActive) return;
+
+  const W = canvas.width, H = canvas.height;
+  const cx = W / 2, cy = H / 2;
+  const t = splashTimer / 60; // seconds
+
+  // Fade in
+  const fadeIn = Math.min(1, t / 0.6);
+
+  ctx.save();
+  ctx.globalAlpha = fadeIn;
+
+  // Full dark overlay
+  ctx.fillStyle = '#050302';
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle golden radial glow center
+  const bgGlow = ctx.createRadialGradient(cx, cy, 0, cx, cy, 220);
+  bgGlow.addColorStop(0, '#c9a84c18');
+  bgGlow.addColorStop(1, '#00000000');
+  ctx.fillStyle = bgGlow;
+  ctx.fillRect(0, 0, W, H);
+
+  // ── TOP ORNAMENT ──
+  ctx.strokeStyle = '#c9a84c66';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(cx - 180, cy - 90);
+  ctx.lineTo(cx + 180, cy - 90);
+  ctx.stroke();
+  // Corner dots
+  [[cx-180, cy-90],[cx+180, cy-90],[cx-180, cy+110],[cx+180, cy+110]].forEach(([x2,y2]) => {
+    ctx.fillStyle = '#c9a84c';
+    ctx.fillRect(x2-2, y2-2, 4, 4);
+  });
+
+  // ── MAIN TITLE ──
+  // Glow behind title
+  const titleGlow = ctx.createRadialGradient(cx, cy-52, 0, cx, cy-52, 100);
+  titleGlow.addColorStop(0, '#c9a84c22');
+  titleGlow.addColorStop(1, '#00000000');
+  ctx.fillStyle = titleGlow;
+  ctx.fillRect(cx-100, cy-100, 200, 100);
+
+  ctx.font = 'bold 22px "Press Start 2P"';
+  ctx.textAlign = 'center';
+  // Shadow
+  ctx.fillStyle = '#000000aa';
+  ctx.fillText('TEMPLE KEY', cx+2, cy-48+2);
+  // Main text
+  ctx.fillStyle = '#f0d060';
+  ctx.fillText('TEMPLE KEY', cx, cy-48);
+  // Subtle outline glow
+  ctx.strokeStyle = '#c9a84c44';
+  ctx.lineWidth = 1;
+  ctx.strokeText('TEMPLE KEY', cx, cy-48);
+
+  // ── SUBTITLE ──
+  ctx.font = '6px "Press Start 2P"';
+  ctx.fillStyle = '#c9a84c99';
+  ctx.fillText('AI-BUILT GAME PROTOTYPE', cx, cy - 22);
+  ctx.fillStyle = '#c9a84c66';
+  ctx.fillText('MULTI-MODEL EXPERIMENT', cx, cy - 8);
+
+  // ── DIVIDER ──
+  ctx.strokeStyle = '#c9a84c44';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(cx - 140, cy + 8);
+  ctx.lineTo(cx + 140, cy + 8);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // ── AUTHOR ──
+  ctx.font = '7px "Press Start 2P"';
+  ctx.fillStyle = '#e8d090';
+  ctx.fillText('Marek Nowicki', cx, cy + 28);
+  ctx.font = '6px "Press Start 2P"';
+  ctx.fillStyle = '#c9a84c88';
+  ctx.fillText('Solution Architect', cx, cy + 44);
+
+  // ── BOTTOM ORNAMENT ──
+  ctx.strokeStyle = '#c9a84c66';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(cx - 180, cy + 110);
+  ctx.lineTo(cx + 180, cy + 110);
+  ctx.stroke();
+
+  // ── PRESS ANY KEY ──
+  const blink = Math.floor(Date.now() / 600) % 2 === 0;
+  if (blink && t > 1) {
+    ctx.font = '6px "Press Start 2P"';
+    ctx.fillStyle = '#c9a84ccc';
+    ctx.fillText('PRESS ANY KEY TO START', cx, cy + 80);
+  }
+
+  // Small temple icon decoration
+  ctx.font = '18px serif';
+  ctx.fillStyle = '#c9a84c55';
+  ctx.fillText('⛩', cx - 8, cy - 68);
+
+  ctx.textAlign = 'left';
+  ctx.restore();
+}
+
 function drawFallingColumns() {
   for (const fc of fallingColumns) {
     const x = Math.round(fc.x);
@@ -3245,6 +3377,7 @@ function gameLoop() {
 
   // UI – bez shake, zawsze na miejscu
   drawDeathScreen();
+  drawSplash();
   drawLevelComplete();
   drawJournalMessage();
   drawOnboarding();
@@ -3279,6 +3412,10 @@ window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
 
 // Prevent scroll/zoom
+document.addEventListener('touchstart', e => {
+  if (splashActive) { splashActive = false; return; }
+  if (journalMsgTimer > 0) { journalMsgTimer = 0; }
+}, { passive: true });
 document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
 document.addEventListener('gesturestart', e => e.preventDefault());
 
