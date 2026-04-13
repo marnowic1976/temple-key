@@ -920,9 +920,9 @@ const player = {
 const keys = {};
 document.addEventListener('keydown', e => {
   if (e.repeat) return;
-  if (!audioCtx) getAudio();
+  if (!audioCtx) { getAudio(); if (splashActive) playMusic(); }
   // Any key dismisses journal
-  if (splashActive) { splashActive = false; return; }
+  if (splashActive) { splashActive = false; stopMusic(); return; }
   if (journalMsgTimer > 0) { journalMsgTimer = 0; return; } // ignoruj auto-repeat klawiatury!
   keys[e.code] = true;
   if (e.code === 'Enter' && levelComplete && levelCompleteTimer > 60) { resetLevel(); return; }
@@ -932,6 +932,183 @@ document.addEventListener('keydown', e => {
   e.preventDefault();
 });
 document.addEventListener('keyup', e => { keys[e.code] = false; });
+
+
+// ─── RETRO MUSIC (Indiana Jones / Mummy style) ───────────────────
+let musicPlaying = false;
+let musicNodes = [];
+let musicScheduled = false;
+
+function stopMusic() {
+  musicNodes.forEach(n => { try { n.stop(); } catch(e) {} });
+  musicNodes = [];
+  musicPlaying = false;
+  musicScheduled = false;
+}
+
+function playMusic() {
+  if (musicPlaying) return;
+  try {
+    const ac = getAudio();
+    musicPlaying = true;
+    scheduleMusic(ac, ac.currentTime);
+  } catch(e) {}
+}
+
+function scheduleMusic(ac, startTime) {
+  if (!musicPlaying) return;
+
+  // Indiana Jones style – adventure fanfare
+  // Main theme: pentatonic scale adventure motif
+  const BPM = 132;
+  const beat = 60 / BPM;
+  const s = startTime;
+
+  // Melody notes: [freq, startBeat, durationBeats, volume]
+  const melody = [
+    // Phrase 1 – heroic opening
+    [392, 0,   0.5, 0.18],  // G4
+    [392, 0.5, 0.25,0.15],
+    [392, 0.75,0.25,0.15],
+    [523, 1,   1,   0.20],  // C5 – hold
+    [440, 2,   0.5, 0.16],  // A4
+    [494, 2.5, 0.5, 0.16],  // B4
+    [523, 3,   0.5, 0.18],  // C5
+    [494, 3.5, 0.5, 0.15],
+    [440, 4,   1,   0.17],  // A4 – hold
+
+    // Phrase 2 – tension building
+    [349, 5,   0.5, 0.15],  // F4
+    [392, 5.5, 0.5, 0.16],
+    [440, 6,   0.5, 0.18],
+    [494, 6.5, 0.5, 0.16],
+    [523, 7,   1.5, 0.20],  // C5 hold
+
+    // Phrase 3 – adventure run
+    [659, 8.5, 0.25,0.16],  // E5
+    [622, 8.75,0.25,0.14],
+    [587, 9,   0.25,0.14],
+    [554, 9.25,0.25,0.14],
+    [523, 9.5, 0.5, 0.18],  // C5
+    [494, 10,  0.5, 0.15],
+    [466, 10.5,0.5, 0.15],
+    [440, 11,  0.5, 0.16],
+    [415, 11.5,0.25,0.13],
+    [392, 11.75,0.25,0.13],
+
+    // Phrase 4 – resolve
+    [349, 12,  0.5, 0.15],  // F4
+    [392, 12.5,0.5, 0.15],
+    [440, 13,  0.75,0.17],
+    [392, 13.75,0.25,0.13],
+    [349, 14,  1,   0.16],
+    [330, 15,  1,   0.14],  // E4
+
+    // Phrase 5 – climax
+    [523, 16,  0.5, 0.20],  // C5
+    [523, 16.5,0.25,0.16],
+    [523, 16.75,0.25,0.16],
+    [659, 17,  1,   0.22],  // E5 – high
+    [587, 18,  0.5, 0.18],
+    [554, 18.5,0.5, 0.16],
+    [523, 19,  2,   0.20],  // C5 hold long
+  ];
+
+  // Bass line – tom-tom / temple drums feel
+  const bass = [
+    [98,  0,   0.15, 0.22],   // boom
+    [98,  1,   0.15, 0.18],
+    [110, 2,   0.15, 0.20],
+    [98,  3,   0.15, 0.18],
+    [98,  4,   0.15, 0.22],
+    [98,  5,   0.15, 0.18],
+    [110, 6,   0.15, 0.20],
+    [98,  7,   0.15, 0.18],
+    [98,  8,   0.15, 0.22],
+    [98,  9,   0.15, 0.18],
+    [110, 10,  0.15, 0.20],
+    [98,  11,  0.15, 0.18],
+    [98,  12,  0.15, 0.22],
+    [98,  13,  0.15, 0.18],
+    [110, 14,  0.15, 0.20],
+    [98,  15,  0.15, 0.18],
+    [98,  16,  0.15, 0.22],
+    [98,  17,  0.15, 0.18],
+    [110, 18,  0.15, 0.20],
+    [98,  19,  0.15, 0.18],
+  ];
+
+  // Percussion – snare on 2 and 4
+  const perc = [
+    [1, 0.25], [1, 1.25], [1, 2.25], [1, 3.25],
+    [1, 4.25], [1, 5.25], [1, 6.25], [1, 7.25],
+    [1, 8.25], [1, 9.25], [1,10.25], [1,11.25],
+    [1,12.25], [1,13.25], [1,14.25], [1,15.25],
+    [1,16.25], [1,17.25], [1,18.25], [1,19.25],
+  ];
+
+  const totalBeats = 21;
+
+  // Play melody
+  melody.forEach(([freq, beatStart, dur, vol]) => {
+    const osc = ac.createOscillator();
+    const g   = ac.createGain();
+    osc.connect(g); g.connect(ac.destination);
+    osc.type = 'square';
+    osc.frequency.value = freq;
+    const t0 = s + beatStart * beat;
+    const t1 = t0 + dur * beat;
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(vol, t0 + 0.01);
+    g.gain.setValueAtTime(vol, t1 - 0.04);
+    g.gain.linearRampToValueAtTime(0, t1);
+    osc.start(t0); osc.stop(t1 + 0.05);
+    musicNodes.push(osc);
+  });
+
+  // Play bass
+  bass.forEach(([freq, beatStart, dur, vol]) => {
+    const osc = ac.createOscillator();
+    const g   = ac.createGain();
+    osc.connect(g); g.connect(ac.destination);
+    osc.type = 'triangle';
+    osc.frequency.value = freq;
+    const t0 = s + beatStart * beat;
+    const t1 = t0 + dur * beat;
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(vol, t0 + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.001, t1);
+    osc.start(t0); osc.stop(t1 + 0.05);
+    musicNodes.push(osc);
+  });
+
+  // Play percussion (noise bursts)
+  perc.forEach(([vol, beatStart]) => {
+    try {
+      const bufSize = Math.floor(ac.sampleRate * 0.08);
+      const buf = ac.createBuffer(1, bufSize, ac.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < bufSize; i++) data[i] = (Math.random()*2-1) * Math.exp(-i/bufSize*12);
+      const src = ac.createBufferSource();
+      src.buffer = buf;
+      const filter = ac.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.value = 2000;
+      const g = ac.createGain();
+      g.gain.value = 0.12;
+      src.connect(filter); filter.connect(g); g.connect(ac.destination);
+      const t0 = s + beatStart * beat;
+      src.start(t0); src.stop(t0 + 0.1);
+      musicNodes.push(src);
+    } catch(e) {}
+  });
+
+  // Schedule loop
+  const loopTime = s + totalBeats * beat;
+  const tid = setTimeout(() => {
+    if (musicPlaying) scheduleMusic(ac, loopTime);
+  }, (totalBeats * beat - 0.5) * 1000);
+}
 
 // ─── HELPERS ─────────────────────────────────────────────────────
 function isSolid(col, row) {
@@ -1377,7 +1554,9 @@ function update() {
   // Splash screen – increment timer, block gameplay
   if (splashActive) {
     splashTimer++;
-    if (splashTimer > 300) splashActive = false; // auto-dismiss after 5s
+    // Auto-start music on first frame if audio context ready
+    if (splashTimer === 2 && audioCtx) playMusic();
+    if (splashTimer > 300) { splashActive = false; stopMusic(); }
     return;
   }
 
@@ -3162,25 +3341,25 @@ function drawSplash() {
   ctx.fillStyle = titleGlow;
   ctx.fillRect(cx-100, cy-100, 200, 100);
 
-  ctx.font = 'bold 22px "Press Start 2P"';
+  ctx.font = 'bold 30px "Press Start 2P"';
   ctx.textAlign = 'center';
   // Shadow
   ctx.fillStyle = '#000000aa';
-  ctx.fillText('TEMPLE KEY', cx+2, cy-48+2);
+  ctx.fillText('TEMPLE KEY', cx+2, cy-56+2);
   // Main text
   ctx.fillStyle = '#f0d060';
-  ctx.fillText('TEMPLE KEY', cx, cy-48);
+  ctx.fillText('TEMPLE KEY', cx, cy-56);
   // Subtle outline glow
   ctx.strokeStyle = '#c9a84c44';
   ctx.lineWidth = 1;
-  ctx.strokeText('TEMPLE KEY', cx, cy-48);
+  ctx.strokeText('TEMPLE KEY', cx, cy-56);
 
   // ── SUBTITLE ──
-  ctx.font = '6px "Press Start 2P"';
+  ctx.font = '8px "Press Start 2P"';
   ctx.fillStyle = '#c9a84c99';
-  ctx.fillText('AI-BUILT GAME PROTOTYPE', cx, cy - 22);
+  ctx.fillText('AI-BUILT GAME PROTOTYPE', cx, cy - 24);
   ctx.fillStyle = '#c9a84c66';
-  ctx.fillText('MULTI-MODEL EXPERIMENT', cx, cy - 8);
+  ctx.fillText('MULTI-MODEL EXPERIMENT', cx, cy - 10);
 
   // ── DIVIDER ──
   ctx.strokeStyle = '#c9a84c44';
@@ -3193,12 +3372,12 @@ function drawSplash() {
   ctx.setLineDash([]);
 
   // ── AUTHOR ──
-  ctx.font = '7px "Press Start 2P"';
+  ctx.font = '9px "Press Start 2P"';
   ctx.fillStyle = '#e8d090';
-  ctx.fillText('Marek Nowicki', cx, cy + 28);
-  ctx.font = '6px "Press Start 2P"';
+  ctx.fillText('Marek Nowicki', cx, cy + 32);
+  ctx.font = '8px "Press Start 2P"';
   ctx.fillStyle = '#c9a84c88';
-  ctx.fillText('Solution Architect', cx, cy + 44);
+  ctx.fillText('Solution Architect', cx, cy + 50);
 
   // ── BOTTOM ORNAMENT ──
   ctx.strokeStyle = '#c9a84c66';
@@ -3211,9 +3390,9 @@ function drawSplash() {
   // ── PRESS ANY KEY ──
   const blink = Math.floor(Date.now() / 600) % 2 === 0;
   if (blink && t > 1) {
-    ctx.font = '6px "Press Start 2P"';
+    ctx.font = '8px "Press Start 2P"';
     ctx.fillStyle = '#c9a84ccc';
-    ctx.fillText('PRESS ANY KEY TO START', cx, cy + 80);
+    ctx.fillText('PRESS ANY KEY TO START', cx, cy + 85);
   }
 
   // Small temple icon decoration
@@ -3413,7 +3592,7 @@ resizeCanvas();
 
 // Prevent scroll/zoom
 document.addEventListener('touchstart', e => {
-  if (splashActive) { splashActive = false; return; }
+  if (splashActive) { if (!audioCtx) { getAudio(); playMusic(); } stopMusic(); splashActive = false; return; }
   if (journalMsgTimer > 0) { journalMsgTimer = 0; }
 }, { passive: true });
 document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
