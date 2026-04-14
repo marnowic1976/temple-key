@@ -4361,7 +4361,7 @@ function drawGameOverScreen() {
   ctx.save();
 
   // Panel
-  const pw = 360, ph = 290;
+  const pw = 360, ph = enteringName ? 390 : 290;
   const px = cx - pw/2, py = cy - ph/2;
   ctx.fillStyle = '#1a1408';
   ctx.fillRect(px, py, pw, ph);
@@ -4392,36 +4392,81 @@ function drawGameOverScreen() {
   ctx.stroke();
 
   if (enteringName) {
-    // ── SECTION 2: Name entry ──
+    // ── SECTION 2: Name entry with virtual keyboard ──
     ctx.font = '7px "Press Start 2P"';
     ctx.fillStyle = '#c9a84c';
-    ctx.fillText('ENTER YOUR NAME (3-5 LETTERS):', cx, py + 82);
+    ctx.fillText('ENTER YOUR NAME:', cx, py + 76);
 
     // Input box
     ctx.fillStyle = '#2a2010';
-    ctx.fillRect(cx - 75, py + 90, 150, 34);
+    ctx.fillRect(cx - 75, py + 84, 150, 30);
     ctx.strokeStyle = '#c9a84c';
     ctx.lineWidth = 2;
-    ctx.strokeRect(cx - 75, py + 90, 150, 34);
+    ctx.strokeRect(cx - 75, py + 84, 150, 30);
 
     // Blinking cursor
     const cursor = Math.floor(Date.now() / 500) % 2 === 0 ? '_' : ' ';
-    ctx.font = 'bold 16px "Press Start 2P"';
+    ctx.font = 'bold 14px "Press Start 2P"';
     ctx.fillStyle = '#f0d060';
-    ctx.fillText(tempInitials + (tempInitials.length < 5 ? cursor : ''), cx, py + 114);
+    ctx.fillText(tempInitials + (tempInitials.length < 5 ? cursor : ''), cx, py + 106);
 
+    // Status hint
     ctx.font = '6px "Press Start 2P"';
-    ctx.fillStyle = '#c9a84c66';
-    ctx.fillText('BACKSPACE TO DELETE   ENTER TO CONFIRM', cx, py + 140);
-
-    // Hint: min 3
     if (tempInitials.length < 3) {
       ctx.fillStyle = '#cc4433';
-      ctx.fillText('MINIMUM 3 LETTERS', cx, py + 156);
+      ctx.fillText('MIN 3 LETTERS', cx, py + 122);
     } else {
       ctx.fillStyle = '#40ff80';
-      ctx.fillText('PRESS ENTER TO SAVE', cx, py + 156);
+      ctx.fillText('TAP OK TO SAVE', cx, py + 122);
     }
+
+    // Virtual keyboard
+    const keys = ['ABCDEFGHI', 'JKLMNOPQR', 'STUVWXYZ'];
+    const kw = 28, kh = 22, kgap = 4;
+    const kStartY = py + 132;
+
+    keys.forEach((row, ri) => {
+      const rowW = row.length * (kw + kgap) - kgap;
+      const kStartX = cx - rowW / 2;
+      row.split('').forEach((letter, ci) => {
+        const kx = kStartX + ci * (kw + kgap);
+        const ky = kStartY + ri * (kh + kgap);
+        // Button bg
+        ctx.fillStyle = '#2a2010';
+        ctx.fillRect(kx, ky, kw, kh);
+        ctx.strokeStyle = '#c9a84c66';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(kx, ky, kw, kh);
+        // Letter
+        ctx.font = '7px "Press Start 2P"';
+        ctx.fillStyle = '#f0d060';
+        ctx.fillText(letter, kx + kw/2, ky + kh/2 + 3);
+      });
+    });
+
+    // DEL and OK buttons
+    const btnY = kStartY + 3 * (kh + kgap) + 4;
+    // DEL
+    ctx.fillStyle = '#3a1010';
+    ctx.fillRect(cx - 80, btnY, 70, kh + 2);
+    ctx.strokeStyle = '#cc4433';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(cx - 80, btnY, 70, kh + 2);
+    ctx.font = '7px "Press Start 2P"';
+    ctx.fillStyle = '#cc4433';
+    ctx.fillText('DEL', cx - 80 + 35, btnY + kh/2 + 3);
+    // OK
+    const okEnabled = tempInitials.length >= 3;
+    ctx.fillStyle = okEnabled ? '#103010' : '#1a1a10';
+    ctx.fillRect(cx + 10, btnY, 70, kh + 2);
+    ctx.strokeStyle = okEnabled ? '#40ff80' : '#c9a84c44';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(cx + 10, btnY, 70, kh + 2);
+    ctx.fillStyle = okEnabled ? '#40ff80' : '#c9a84c44';
+    ctx.fillText('OK', cx + 10 + 35, btnY + kh/2 + 3);
+
+    // Store keyboard layout for touch detection
+    window._vkeyboard = { keys, kw, kh, kgap, kStartY, cx, btnY, pw, ph, px, py };
 
   } else {
     // ── SECTION 3: High scores table ──
@@ -4647,6 +4692,7 @@ function gameLoop() {
   drawOnboarding();
   drawLevelBanner();
   drawMuteButton();
+  drawFullscreenButton();
   drawVersionTag();
   drawStarsHUD();
   drawHUD();
@@ -4660,10 +4706,51 @@ function gameLoop() {
 // ─── CANVAS SCALING ───────────────────────────────────────────────
 const GAME_W = 640, GAME_H = 448;
 
+function resizeCanvas() {
+  const wrapper = document.getElementById('gameWrapper');
+  const controls = document.getElementById('touchControls');
+  const isMobile = window.innerWidth <= 900 || 'ontouchstart' in window;
+  const reservedBottom = isMobile ? 160 : 0;
+  const scaleX = window.innerWidth  / GAME_W;
+  const scaleY = (window.innerHeight - reservedBottom) / GAME_H;
+  const scale  = Math.min(scaleX, scaleY, 2.0);
+  const w = Math.floor(GAME_W * scale);
+  const h = Math.floor(GAME_H * scale);
+  canvas.style.width  = w + 'px';
+  canvas.style.height = h + 'px';
+  if (controls) { controls.style.width = w + 'px'; controls.style.height = '160px'; }
+  wrapper.style.width  = w + 'px';
+  wrapper.style.height = (h + (isMobile ? reservedBottom : 0)) + 'px';
+}
 
+window.addEventListener('resize', resizeCanvas);
+document.addEventListener('fullscreenchange', resizeCanvas);
+document.addEventListener('webkitfullscreenchange', resizeCanvas);
+resizeCanvas();
 
 // Prevent scroll/zoom
 document.addEventListener('touchstart', e => {
+  // Fullscreen button
+  if (!gameOver && !splashActive && e.touches.length > 0) {
+    const rect = canvas.getBoundingClientRect();
+    const t = e.touches[0];
+    if (checkFullscreenClick(t.clientX - rect.left, t.clientY - rect.top)) {
+      e.preventDefault();
+      return;
+    }
+    if (checkMuteClick(t.clientX - rect.left, t.clientY - rect.top)) {
+      e.preventDefault();
+      return;
+    }
+  }
+  // Virtual keyboard touch
+  if (gameOver && enteringName && e.touches.length > 0) {
+    const rect = canvas.getBoundingClientRect();
+    const t = e.touches[0];
+    handleVKeyboardTouch(t.clientX - rect.left, t.clientY - rect.top);
+    e.preventDefault();
+    return;
+  }
   // Game Over touch handling
   if (gameOver && enteringName) { return; } // don't dismiss during name entry
   if (gameOver && !enteringName) {
@@ -4736,6 +4823,113 @@ setupTouchButtons();
 // Canvas click during splash
 
 // Mute button click/touch detection
+
+// Virtual keyboard touch handler
+function handleVKeyboardTouch(touchX, touchY) {
+  if (!gameOver || !enteringName) return false;
+  const vk = window._vkeyboard;
+  if (!vk) return false;
+
+  const scaleX = canvas.width  / parseFloat(canvas.style.width  || canvas.width);
+  const scaleY = canvas.height / parseFloat(canvas.style.height || canvas.height);
+  const cx2 = touchX * scaleX;
+  const cy2 = touchY * scaleY;
+
+  // Check letter keys
+  vk.keys.forEach((row, ri) => {
+    const rowW = row.length * (vk.kw + vk.kgap) - vk.kgap;
+    const kStartX = vk.cx - rowW / 2;
+    row.split('').forEach((letter, ci) => {
+      const kx = kStartX + ci * (vk.kw + vk.kgap);
+      const ky = vk.kStartY + ri * (vk.kh + vk.kgap);
+      if (cx2 >= kx && cx2 <= kx + vk.kw && cy2 >= ky && cy2 <= ky + vk.kh) {
+        if (tempInitials.length < 5) {
+          tempInitials += letter;
+          sfxScore && sfxScore();
+        }
+      }
+    });
+  });
+
+  // DEL button
+  if (cx2 >= vk.cx - 80 && cx2 <= vk.cx - 10 && cy2 >= vk.btnY && cy2 <= vk.btnY + vk.kh + 2) {
+    tempInitials = tempInitials.slice(0, -1);
+    return true;
+  }
+  // OK button
+  if (cx2 >= vk.cx + 10 && cx2 <= vk.cx + 80 && cy2 >= vk.btnY && cy2 <= vk.btnY + vk.kh + 2) {
+    if (tempInitials.length >= 3) {
+      saveHighScore(tempInitials);
+      enteringName = false;
+      gameOverTimer = 0;
+    }
+    return true;
+  }
+  return true;
+}
+
+
+function drawFullscreenButton() {
+  if (splashActive) return;
+  const bx = canvas.width - 28, by = canvas.height / 2 - 52;
+  const bw = 22, bh = 22;
+
+  const isFS = !!(document.fullscreenElement || document.webkitFullscreenElement);
+
+  ctx.fillStyle = '#1a2a1a88';
+  ctx.fillRect(bx, by, bw, bh);
+  ctx.strokeStyle = '#44aa44';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(bx, by, bw, bh);
+
+  // Icon: arrows in/out
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 1.5;
+  ctx.lineCap = 'round';
+  if (!isFS) {
+    // Expand arrows (4 corners pointing out)
+    const m = 5, a = 4;
+    ctx.beginPath();
+    ctx.moveTo(bx+m,   bx-by+by+m+a); ctx.lineTo(bx+m, by+m);   ctx.lineTo(bx+m+a, by+m);
+    ctx.moveTo(bx+bw-m-a, by+m);      ctx.lineTo(bx+bw-m, by+m); ctx.lineTo(bx+bw-m, by+m+a);
+    ctx.moveTo(bx+m,   by+bh-m-a);    ctx.lineTo(bx+m, by+bh-m); ctx.lineTo(bx+m+a, by+bh-m);
+    ctx.moveTo(bx+bw-m-a, by+bh-m);   ctx.lineTo(bx+bw-m, by+bh-m); ctx.lineTo(bx+bw-m, by+bh-m-a);
+    ctx.stroke();
+  } else {
+    // Collapse arrows (4 corners pointing in)
+    const cx2 = bx+bw/2, cy2 = by+bh/2, a = 4;
+    ctx.beginPath();
+    ctx.moveTo(bx+4,    by+4+a);  ctx.lineTo(bx+4+a, by+4);  ctx.lineTo(bx+4+a, by+4+a);
+    ctx.moveTo(bx+bw-4, by+4+a);  ctx.lineTo(bx+bw-4-a, by+4); ctx.lineTo(bx+bw-4-a, by+4+a);
+    ctx.moveTo(bx+4,    by+bh-4-a); ctx.lineTo(bx+4+a, by+bh-4); ctx.lineTo(bx+4+a, by+bh-4-a);
+    ctx.moveTo(bx+bw-4, by+bh-4-a); ctx.lineTo(bx+bw-4-a, by+bh-4); ctx.lineTo(bx+bw-4-a, by+bh-4-a);
+    ctx.stroke();
+  }
+}
+
+function toggleFullscreen() {
+  const el = document.documentElement;
+  const isFS = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  if (!isFS) {
+    (el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen).call(el);
+  } else {
+    (document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen).call(document);
+  }
+}
+
+function checkFullscreenClick(x, y) {
+  if (splashActive) return false;
+  const scaleX = canvas.width  / parseFloat(canvas.style.width  || canvas.width);
+  const scaleY = canvas.height / parseFloat(canvas.style.height || canvas.height);
+  const cx2 = x * scaleX, cy2 = y * scaleY;
+  const bx = canvas.width - 28, by = canvas.height / 2 - 52, bw = 22, bh = 22;
+  if (cx2 >= bx && cx2 <= bx+bw && cy2 >= by && cy2 <= by+bh) {
+    toggleFullscreen();
+    return true;
+  }
+  return false;
+}
+
 function checkMuteClick(x, y) {
   const scaleX = canvas.width  / canvas.getBoundingClientRect().width;
   const scaleY = canvas.height / canvas.getBoundingClientRect().height;
@@ -4756,6 +4950,7 @@ function checkMuteClick(x, y) {
 
 canvas.addEventListener('click', e => {
   const rect = canvas.getBoundingClientRect();
+  if (checkFullscreenClick(e.clientX - rect.left, e.clientY - rect.top)) return;
   if (checkMuteClick(e.clientX - rect.left, e.clientY - rect.top)) return;
   const ac = getAudio();
   if (ac.state === 'suspended') ac.resume();
