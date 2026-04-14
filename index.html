@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>TEMPLE KEY v0.17</title>
+<title>TEMPLE KEY v0.18</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
 
@@ -92,9 +92,9 @@
 
   /* ACTION BUTTONS */
   #actions { position: absolute; right: 12px; top: 8px; width: 120px; height: 96px; }
-  #btn-whip  { width:40px;height:40px; top:0;    right:40px; }
+  #btn-whip  { width:40px;height:40px; bottom:0; right:0; }
   #btn-build { width:40px;height:40px; bottom:0; left:0; }
-  #btn-break { width:40px;height:40px; bottom:0; right:0; }
+  #btn-break { width:40px;height:40px; top:0;    right:40px; }
   #btn-whip span  { font-size:16px; }
   #btn-build span { display:flex;flex-direction:column;align-items:center;gap:1px; }
   #btn-break span { display:flex;flex-direction:column;align-items:center;gap:1px; }
@@ -432,8 +432,25 @@ function updateAmbientSounds() {
   // Dizzy – co ~60 klatek gdy ktoś ogłuszony
   dizzyTimer++;
   if (dizzyTimer > 55) {
-    const hasStunned = enemies.some(e => e.stunTimer > 0);
+    const hasStunned = enemies.some(e => e.stunTimer > 0 && !e.ghost);
     if (hasStunned) sfxDizzy();
+    // Ghost howl
+    const hasGhost = enemies.some(e => e.ghost);
+    if (hasGhost) {
+      try {
+        const ac = getAudio();
+        if (ac.state === 'running') {
+          const osc = ac.createOscillator(), g = ac.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(220 + Math.random()*80, ac.currentTime);
+          osc.frequency.linearRampToValueAtTime(160, ac.currentTime + 0.3);
+          g.gain.setValueAtTime(0.06, ac.currentTime);
+          g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.4);
+          osc.connect(g); g.connect(ac.destination);
+          osc.start(); osc.stop(ac.currentTime + 0.4);
+        }
+      } catch(e2) {}
+    }
     dizzyTimer = 0;
   }
 }
@@ -1369,6 +1386,27 @@ function resetLevel(fullReset) {
 
 function updateEnemies() {
   for (const e of enemies) {
+
+    // ── GHOST: fly straight at player, ignore walls ──
+    if (e.ghost) {
+      const dx = (player.x + player.w/2) - (e.x + e.w/2);
+      const dy = (player.y + player.h/2) - (e.y + e.h/2);
+      const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+      const speed = 0.67; // 1.2 * 0.7 * 0.8 = -44%
+      e.x += (dx / dist) * speed;
+      e.y += (dy / dist) * speed;
+
+      // Kill player on contact
+      if (!playerDead) {
+        const overlap = e.x < player.x + player.w - 4 &&
+                        e.x + e.w > player.x + 4 &&
+                        e.y < player.y + player.h - 4 &&
+                        e.y + e.h > player.y + 4;
+        if (overlap) killPlayer();
+      }
+      continue;
+    }
+
     // Grawitacja
     e.velY += GRAVITY;
     if (e.velY > 12) e.velY = 12;
@@ -1494,6 +1532,64 @@ function drawEnemies() {
   for (const e of enemies) {
     const x = Math.round(e.x);
     const y = Math.round(e.y);
+
+    // ── Draw ghost ──
+    if (e.ghost) {
+      const x2 = Math.round(e.x), y2 = Math.round(e.y);
+      const t2 = Date.now() * 0.004;
+      const bob = Math.sin(t2 + e.x * 0.1) * 3;
+      const hp = e.ghostHP || 3;
+      const col = hp === 3 ? '#6666ff' : hp === 2 ? '#9966ff' : '#ff44ff';
+
+      ctx.save();
+      ctx.globalAlpha = 0.7 + Math.sin(t2*2) * 0.15;
+
+      // Ghost body – rounded blob
+      const grad = ctx.createRadialGradient(x2+e.w/2, y2+e.h/2+bob, 2, x2+e.w/2, y2+e.h/2+bob, e.w*0.8);
+      grad.addColorStop(0, '#ffffff88');
+      grad.addColorStop(0.4, col + 'aa');
+      grad.addColorStop(1, col + '22');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.ellipse(x2+e.w/2, y2+e.h/2+bob, e.w*0.6, e.h*0.55, 0, 0, Math.PI*2);
+      ctx.fill();
+
+      // Wavy bottom
+      ctx.fillStyle = col + '66';
+      ctx.beginPath();
+      ctx.moveTo(x2+2, y2+e.h+bob);
+      for (let wx = 0; wx <= e.w-4; wx += 4) {
+        ctx.lineTo(x2+2+wx, y2+e.h+bob + Math.sin(t2*3+wx*0.5)*3);
+      }
+      ctx.lineTo(x2+e.w-2, y2+e.h/2+bob);
+      ctx.closePath();
+      ctx.fill();
+
+      // Eyes – red glowing
+      ctx.fillStyle = '#ff2222';
+      ctx.beginPath(); ctx.arc(x2+e.w/2-5, y2+e.h/2-2+bob, 3, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x2+e.w/2+5, y2+e.h/2-2+bob, 3, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#ff8888';
+      ctx.beginPath(); ctx.arc(x2+e.w/2-5, y2+e.h/2-2+bob, 1.5, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x2+e.w/2+5, y2+e.h/2-2+bob, 1.5, 0, Math.PI*2); ctx.fill();
+
+      // HP dots above
+      for (let h2=0; h2<3; h2++) {
+        ctx.fillStyle = h2 < hp ? '#cc88ff' : '#333333';
+        ctx.beginPath();
+        ctx.arc(x2+e.w/2 - 8 + h2*8, y2+bob-10, 3, 0, Math.PI*2);
+        ctx.fill();
+      }
+
+      // Trail
+      ctx.fillStyle = col + '33';
+      ctx.beginPath();
+      ctx.ellipse(x2+e.w/2, y2+e.h+bob+4, e.w*0.3, 4, 0, 0, Math.PI*2);
+      ctx.fill();
+
+      ctx.restore();
+      continue;
+    }
 
     ctx.save();
     // Stun – blinking
@@ -2330,6 +2426,34 @@ function checkWhipHit() {
     const ey1 = e.y, ey2 = e.y + e.h;
 
     if (wx2 > ex1 && wx1 < ex2 && wy2 > ey1 && wy1 < ey2) {
+      // ── Hit ghost – 3 hits to kill, 200pts ──
+      if (e.ghost) {
+        e.ghostHP--;
+        sfxStun();
+        spawnParticles(e.x + e.w/2, e.y + e.h/2, '#8888ff', 10);
+        spawnParticles(e.x + e.w/2, e.y + e.h/2, '#cc88ff', 6);
+        if (e.ghostHP <= 0) {
+          const gx = e.x + e.w/2, gy = e.y + e.h/2;
+          sfxKill();
+          for (let d = 0; d < 24; d++) {
+            const angle = (d/24)*Math.PI*2;
+            const spd = 2 + Math.random()*4;
+            particles.push({ x:gx, y:gy,
+              vx: Math.cos(angle)*spd, vy: Math.sin(angle)*spd-2,
+              life:1.0, color: d%2===0 ? '#8888ff':'#cc88ff', size:3+Math.random()*3 });
+          }
+          particles.push({ x:gx, y:gy, vx:0, vy:0, life:1.0, color:'#ffffff', size:22 });
+          enemies.splice(i, 1);
+          enemiesKilled++;
+          addScore(200, gx-10, gy-10, '#cc88ff');
+          addShake(2, 6);
+          showAction('GHOST +200!', '#cc88ff');
+        } else {
+          showAction('HIT! ' + e.ghostHP + ' HP LEFT', '#8888ff');
+        }
+        player.whipActive = false;
+        break;
+      }
       if (e.stunTimer > 0) {
         // Już ogłuszony → zabij!
         // Efekt śmierci – dramatyczne piksele + flash
@@ -2526,9 +2650,32 @@ function update() {
         if (r >= 0 && r < ROWS && c >= 0 && c < COLS && tileMap[r][c] === 'K') {
           tileMap[r][c] = '.';
           idolCollected = true;
+          sfxIdol();
+          addScore(100, c*T, r*T - 16, '#f0d060');
           spawnParticles(c*T + T/2, r*T + T/2, '#f0d060', 20);
           spawnParticles(c*T + T/2, r*T + T/2, '#ffffff', 10);
           showAction('IDOL COLLECTED!', '#f0d060');
+          // Transform all enemies to ghosts!
+          enemies.forEach(en => {
+            en.ghost   = true;
+            en.ghostHP = 3;
+            en.stunTimer = 0;
+            en.velX = 0;
+            en.velY = 0;
+          });
+          if (enemies.length > 0) {
+            setTimeout(() => showAction('THE DEAD AWAKEN!', '#8888ff'), 800);
+            try {
+              const ac2 = getAudio();
+              if (ac2.state === 'running') {
+                [0, 300, 600].forEach((delay, i) => {
+                  setTimeout(() => {
+                    playTone(120 - i*20, 'sawtooth', 0.5, 0.14, 0.05, 0.5);
+                  }, delay);
+                });
+              }
+            } catch(e2) {}
+          }
         }
       }
     }
@@ -4297,7 +4444,7 @@ function drawVersionTag() {
   ctx.font = '6px "Press Start 2P"';
   ctx.textAlign = 'right';
   ctx.fillStyle = '#c9a84c44';
-  ctx.fillText('v0.17', canvas.width - 8, canvas.height - 8);
+  ctx.fillText('v0.18', canvas.width - 8, canvas.height - 8);
   ctx.textAlign = 'left';
   ctx.restore();
 }
@@ -4888,29 +5035,35 @@ function drawFullscreenButton() {
   ctx.lineWidth = 1;
   ctx.strokeRect(bx, by, bw, bh);
 
-  // Icon: arrows in/out
+  // Icon: simple square arrows
   ctx.strokeStyle = '#ffffff';
   ctx.lineWidth = 1.5;
   ctx.lineCap = 'round';
+  ctx.beginPath();
   if (!isFS) {
-    // Expand arrows (4 corners pointing out)
-    const m = 5, a = 4;
-    ctx.beginPath();
-    ctx.moveTo(bx+m,   bx-by+by+m+a); ctx.lineTo(bx+m, by+m);   ctx.lineTo(bx+m+a, by+m);
-    ctx.moveTo(bx+bw-m-a, by+m);      ctx.lineTo(bx+bw-m, by+m); ctx.lineTo(bx+bw-m, by+m+a);
-    ctx.moveTo(bx+m,   by+bh-m-a);    ctx.lineTo(bx+m, by+bh-m); ctx.lineTo(bx+m+a, by+bh-m);
-    ctx.moveTo(bx+bw-m-a, by+bh-m);   ctx.lineTo(bx+bw-m, by+bh-m); ctx.lineTo(bx+bw-m, by+bh-m-a);
-    ctx.stroke();
+    // 4 corner arrows pointing OUT
+    const m = 5, a = 3;
+    // top-left
+    ctx.moveTo(bx+m+a, by+m); ctx.lineTo(bx+m, by+m); ctx.lineTo(bx+m, by+m+a);
+    // top-right
+    ctx.moveTo(bx+bw-m-a, by+m); ctx.lineTo(bx+bw-m, by+m); ctx.lineTo(bx+bw-m, by+m+a);
+    // bottom-left
+    ctx.moveTo(bx+m, by+bh-m-a); ctx.lineTo(bx+m, by+bh-m); ctx.lineTo(bx+m+a, by+bh-m);
+    // bottom-right
+    ctx.moveTo(bx+bw-m, by+bh-m-a); ctx.lineTo(bx+bw-m, by+bh-m); ctx.lineTo(bx+bw-m-a, by+bh-m);
   } else {
-    // Collapse arrows (4 corners pointing in)
-    const cx2 = bx+bw/2, cy2 = by+bh/2, a = 4;
-    ctx.beginPath();
-    ctx.moveTo(bx+4,    by+4+a);  ctx.lineTo(bx+4+a, by+4);  ctx.lineTo(bx+4+a, by+4+a);
-    ctx.moveTo(bx+bw-4, by+4+a);  ctx.lineTo(bx+bw-4-a, by+4); ctx.lineTo(bx+bw-4-a, by+4+a);
-    ctx.moveTo(bx+4,    by+bh-4-a); ctx.lineTo(bx+4+a, by+bh-4); ctx.lineTo(bx+4+a, by+bh-4-a);
-    ctx.moveTo(bx+bw-4, by+bh-4-a); ctx.lineTo(bx+bw-4-a, by+bh-4); ctx.lineTo(bx+bw-4-a, by+bh-4-a);
-    ctx.stroke();
+    // 4 corner arrows pointing IN
+    const m = 5, a = 3;
+    // top-left
+    ctx.moveTo(bx+m, by+m); ctx.lineTo(bx+m+a, by+m+a);
+    // top-right
+    ctx.moveTo(bx+bw-m, by+m); ctx.lineTo(bx+bw-m-a, by+m+a);
+    // bottom-left
+    ctx.moveTo(bx+m, by+bh-m); ctx.lineTo(bx+m+a, by+bh-m-a);
+    // bottom-right
+    ctx.moveTo(bx+bw-m, by+bh-m); ctx.lineTo(bx+bw-m-a, by+bh-m-a);
   }
+  ctx.stroke();
 }
 
 function toggleFullscreen() {
